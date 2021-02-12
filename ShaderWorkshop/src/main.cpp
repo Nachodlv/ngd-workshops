@@ -9,9 +9,20 @@
 #include <sstream>
 #include <iostream>
 
-#include <glm/vec3.hpp>
+// glm includes
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <vector>
+
+
+
+// http://stackoverflow.com/questions/24088002/stb-image-h-in-visual-studio-unresolved-external-symbol
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+
+glm::mat4 transform;
+glm::mat4 projection;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
@@ -20,6 +31,51 @@ void processInput(GLFWwindow* window);
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
+///////////////////// STBI HELPERS FUNCTIONS //////////////////////////////////////////////////////////////////////////////
+unsigned char* LoadImage(
+	const char* absoluteFilePath,
+	int& x,
+	int& y,
+	int& channels_in_file,
+	const unsigned int& desired_channels,
+	const bool& flip_vertically)
+{
+	// Basic usage (see HDR discussion below for HDR usage):
+	//    int x,y,n;
+	//    unsigned char *data = stbi_load(filename, &x, &y, &n, 0);
+	//    // ... process data if not NULL ...
+	//    // ... x = width, y = height, n = # 8-bit components per pixel ...
+	//    // ... replace '0' with '1'..'4' to force that many components per pixel
+	//    // ... but 'n' will always be the number that it would have been if you said 0
+	//    stbi_image_free(data)
+
+	stbi_set_flip_vertically_on_load(flip_vertically);
+
+	int _x = 0;
+	int _y = 0;
+	int _channels_in_file = 0;
+
+	unsigned char* buffer = stbi_load(absoluteFilePath, &_x, &_y, &_channels_in_file, desired_channels);
+	if (buffer == nullptr)
+	{
+		std::cout << "failed to load texture: " << absoluteFilePath <<std::endl;
+		return nullptr;
+	}
+
+	x = _x;
+	y = _y;
+	channels_in_file = _channels_in_file;
+
+	return buffer;
+}
+
+void FreeImage(unsigned char* pixelsData)
+{
+	stbi_image_free(pixelsData);
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+///////////////////// GENERAL GL SHADERS HELPERS FUNCTIONS //////////////////////////////////////////////////////////////////////////////
 const std::string ReadShader(const char* shaderPath)
 {
 	// 1. retrieve the vertex/fragment source code from filePath
@@ -99,6 +155,60 @@ int CreateCompileAndLinkShaderProgram(const char* vertexShaderSource, const char
 
 	return shaderProgram;
 }
+///////////////////// GENERAL GL TEXTURE HELPERS FUNCTIONS //////////////////////////////////////////////////////////////////////////////
+void CreateGLTexture(unsigned int& texture)
+{
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture); // all upcoming GL_TEXTURE_2D operations now have effect on this texture object
+	{
+		// set the texture wrapping parameters
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		// set texture filtering parameters
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	}
+	glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+/// <summary>
+///
+/// </summary>
+/// <param name="texture"> The texture </param>
+/// <param name="width"> Specifies the width of the texture image. All implementations support texture images that are at least 1024 texels wide. </param>
+/// <param name="height"> Specifies the height of the texture image, or the number of layers in a texture array, in the case of the GL_TEXTURE_1D_ARRAY and GL_PROXY_TEXTURE_1D_ARRAY targets. All implementations support 2D texture images that are at least 1024 texels high, and texture arrays that are at least 256 layers deep. </param>
+/// <param name="internalformat"> Specifies the number of color components in the texture. Must be one of base internal formats given in Table 1, one of the sized internal formats given in Table 2, or one of the compressed internal formats given in Table 3, below. </param>
+/// <param name="format"> Specifies the format of the pixel data. The following symbolic values are accepted: GL_RED, GL_RG, GL_RGB, GL_BGR, GL_RGBA, GL_BGRA, GL_RED_INTEGER, GL_RG_INTEGER, GL_RGB_INTEGER, GL_BGR_INTEGER, GL_RGBA_INTEGER, GL_BGRA_INTEGER, GL_STENCIL_INDEX, GL_DEPTH_COMPONENT, GL_DEPTH_STENCIL. </param>
+/// <param name="type"> Specifies the data type of the pixel data. The following symbolic values are accepted: GL_UNSIGNED_BYTE, GL_BYTE, GL_UNSIGNED_SHORT, GL_SHORT, GL_UNSIGNED_INT, GL_INT, GL_HALF_FLOAT, GL_FLOAT, GL_UNSIGNED_BYTE_3_3_2, GL_UNSIGNED_BYTE_2_3_3_REV, GL_UNSIGNED_SHORT_5_6_5, GL_UNSIGNED_SHORT_5_6_5_REV, GL_UNSIGNED_SHORT_4_4_4_4, GL_UNSIGNED_SHORT_4_4_4_4_REV, GL_UNSIGNED_SHORT_5_5_5_1, GL_UNSIGNED_SHORT_1_5_5_5_REV, GL_UNSIGNED_INT_8_8_8_8, GL_UNSIGNED_INT_8_8_8_8_REV, GL_UNSIGNED_INT_10_10_10_2, and GL_UNSIGNED_INT_2_10_10_10_REV. </param>
+/// <param name="pixelsData"></param>
+/// <returns></returns>
+void SetImageToGLTexture(
+	unsigned int texture,
+	const int width, const int height,
+	GLint internalformat,
+	GLenum format,
+	GLenum type,
+	const void* pixelsData,
+	const bool generateMipMaps = false)
+{
+	// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glTexImage2D.xhtml
+	if (pixelsData == nullptr)
+	{
+		return;
+	}
+
+	glBindTexture(GL_TEXTURE_2D, texture); // all upcoming GL_TEXTURE_2D operations now have effect on this texture object
+	{
+		glTexImage2D(GL_TEXTURE_2D, 0, internalformat, width, height, 0, format, type, pixelsData);
+		if (generateMipMaps)
+		{
+			glGenerateMipmap(GL_TEXTURE_2D);
+		}
+	}
+	glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 int main()
 {
@@ -129,26 +239,62 @@ int main()
 		return -1;
 	}
 
-	int shaderProgram = -1;
-	{ // Create shader
-		// Step 0 Read, build and compile the Vertex & Fragment shaders program
-		const std::string vertexShaderSource = ReadShader("../res/shaders/shader.vs");
-		const std::string fragmentShaderSource = ReadShader("../res/shaders/shader.fs");
-		// El shader es un programa, es un codigo que se compila.
-		// Muy similar a C.
-		// Un shader programar esta compuesto por shader
-		shaderProgram = CreateCompileAndLinkShaderProgram(vertexShaderSource.c_str(), fragmentShaderSource.c_str());
-	}
+	glEnable(GL_CULL_FACE);
+	glCullFace(GL_BACK);
+
+	projection = glm::perspective(glm::radians(75.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.01f, 100.0f);
 
 	// Step 1: Load geometry data
 	// Data estatica que te llega de Blender
-	std::vector<glm::vec3> vertexData =
+	GLfloat cube_vertex_data[] =
 	{
-		// positions						// colors
-		glm::vec3(0.5f, -0.5f, 0.0f),	glm::vec3(1.0f, 0.0f, 0.0f), // Vertex 0
-		glm::vec3(-0.5f, -0.5f, 0.0f),	glm::vec3(0.0f, 1.0f, 0.0f), // Vertex 1
-		glm::vec3(0.0f,  0.5f, 0.0f),	glm::vec3(0.0f, 0.0f, 1.0f) // Vertex 2
+		// Vertex position		// Vertex color
+		// front
+		-0.5f, -0.5f, 0.5f,		1.0, 0.0, 0.0,
+		 0.5f, -0.5f, 0.5f,		0.0, 1.0, 0.0,
+		 0.5f,  0.5f, 0.5f,		0.0, 0.0, 1.0,
+		-0.5f,  0.5f, 0.5f,		1.0, 1.0, 1.0,
+		// back
+		-0.5f, -0.5f, -0.5f,	1.0, 0.0, 0.0,
+		 0.5f, -0.5f, -0.5f,	0.0, 1.0, 0.0,
+		 0.5f,  0.5f, -0.5f,	0.0, 0.0, 1.0,
+		-0.5f,  0.5f, -0.5f,	1.0, 1.0, 1.0,
 	};
+
+	/* init_resources */
+	unsigned int cube_elements[] =
+	{
+		// front
+		0, 1, 2,
+		2, 3, 0,
+		1, 5, 6,
+		6, 2, 1,
+		// back
+		7, 6, 5,
+		5, 4, 7,
+		// left
+		4, 0, 3,
+		3, 7, 4,
+		// bottom
+		4, 5, 1,
+		1, 0, 4,
+		// top
+		3, 2, 6,
+		6, 7, 3
+	};
+
+	unsigned int IBO;
+	{ // Create IBO (INDEX BUFFER OBJECT)
+		glGenBuffers(1, &IBO);
+
+		// Bind IBO
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
+		{
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_elements), cube_elements, GL_STATIC_DRAW /* Significa que la data no va a cambiar, la copia */);
+		}
+		// Unbind IBO
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	}
 
 	// Step 2: Creates a VBO (Vertex buffer object)
 	unsigned int VBO;
@@ -161,7 +307,7 @@ int main()
 		// b: Store geometry data into the buffer data using "glBufferData"
 		// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glBufferData.xhtml
 		// Se pushea la data de los vertices
-		glBufferData(GL_ARRAY_BUFFER, sizeof(vertexData[0]) * vertexData.size(), &vertexData[0], GL_STATIC_DRAW /* Significa que la data no va a cambiar, la copia */);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(cube_vertex_data), cube_vertex_data, GL_STATIC_DRAW);
 	}
 	glBindBuffer(GL_ARRAY_BUFFER, 0); // unbind
 
@@ -182,11 +328,12 @@ int main()
 		{
 			// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glVertexAttribPointer.xhtml
 			// position attribute
-			GLsizei bytePerVertex = 6 * sizeof(float);
+			GLsizei bytePerVertex = 6 * sizeof(GLfloat);
 			void* offset = (void*)0;
 
 			// Abilitame el slot 0
 			glEnableVertexAttribArray(0);
+
 			glVertexAttribPointer(
 				0,
 				3 /* Lee los primeros tres floats. Es la posicion (vec3)*/,
@@ -199,11 +346,26 @@ int main()
 			offset = (void*)(3 * sizeof(float)); // Cuanto me muevo para leer el color
 			glEnableVertexAttribArray(1);
 			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
-
 		}
 		glBindBuffer(GL_ARRAY_BUFFER, 0); // unbind
 	}
 	glBindVertexArray(0); // unbind
+
+	int shaderProgram = -1;
+	{ // Create shader
+		// Step 0 Read, build and compile the Vertex & Fragment shaders program
+		const std::string vertexShaderSource = ReadShader("../res/shaders/shader.vs");
+		const std::string fragmentShaderSource = ReadShader("../res/shaders/shader.fs");
+		// El shader es un programa, es un codigo que se compila.
+		// Muy similar a C.
+		// Un shader programar esta compuesto por shader
+		shaderProgram = CreateCompileAndLinkShaderProgram(vertexShaderSource.c_str(), fragmentShaderSource.c_str());
+	}
+
+	int transformUniformLocation = glGetUniformLocation(shaderProgram, "transform");
+	int projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
+
+	transform = glm::translate(transform, glm::vec3(0.0f, 0.0f, -3.0f));
 
 	// Loop
 	while (!glfwWindowShouldClose(window))
@@ -215,7 +377,7 @@ int main()
 
 		// Update
 		{
-			// TODO
+			//transform = glm::rotate(transform, 0.01f, glm::vec3(1.0f, 1.0f, 1.0f));
 		}
 
 		// Render Pass
@@ -230,12 +392,19 @@ int main()
 			glBindVertexArray(VAO);
 			{
 				glBindBuffer(GL_ARRAY_BUFFER, VBO);
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
 				{
 					glUseProgram(shaderProgram);
-					// Update uniforms here!
+					{ // Update uniforms here!
+						glUniformMatrix4fv(transformUniformLocation, 1, GL_FALSE, &transform[0][0]);
+						glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
+					}
 
-					glDrawArrays(GL_TRIANGLES /* Toda la data que tengo dibujalo como triangulo */, 0, 3);
+					// Draw call
+					// glDrawArrays(GL_TRIANGLES /* Toda la data que tengo dibujalo como triangulo */, 0, 3); // Solo cuando no tengo indices
+					glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
 				}
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 				glBindBuffer(GL_ARRAY_BUFFER, 0);
 			}
 			glBindVertexArray(0);
@@ -268,6 +437,26 @@ void processInput(GLFWwindow* window)
 	{
 		glfwSetWindowShouldClose(window, true);
 	}
+	if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+	{
+		transform = glm::rotate(transform, -0.1f, glm::vec3(0.0f, 1.0f, 0.0f));
+	}
+	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+	{
+		transform = glm::translate(transform, glm::vec3(-0.01f, 0.0f, 0.0f));
+	}
+	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+	{
+		transform = glm::translate(transform, glm::vec3(0.01f, 0.0f, 0.0f));
+	}
+	if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+	{
+		transform = glm::translate(transform, glm::vec3(0.0f, 0.01f, 0.0f));
+	}
+	if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+	{
+		transform = glm::translate(transform, glm::vec3(0.0f, -0.01f, 0.0f));
+	}
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -277,4 +466,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 	// make sure the viewport matches the new window dimensions; note that width and
 	// height will be significantly larger than specified on retina displays.
 	glViewport(0, 0, width, height);
+
+	projection = glm::perspective(glm::radians(75.0f), (float)width / (float)height, 0.01f, 100.0f);
 }

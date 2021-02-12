@@ -1,0 +1,2 @@
+E:\ngd-workshops\ShaderWorkshopsClone\ShaderWorkshop\build\Debug\glad.pdb
+E:\ngd-workshops\ShaderWorkshopsClone\ShaderWorkshop\build\glad.dir\Debug\glad.pdb

@@ -1,0 +1,10 @@
+^E:\NGD-WORKSHOPS\SHADERWORKSHOPSCLONE\SHADERWORKSHOP\BUILD\CMAKEFILES\C4C5E1C2B474EBADF8EE9E9602E141C8\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SE:/ngd-workshops/ShaderWorkshopsClone/ShaderWorkshop -BE:/ngd-workshops/ShaderWorkshopsClone/ShaderWorkshop/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/ngd-workshops/ShaderWorkshopsClone/ShaderWorkshop/build/ShaderWorkshop.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
