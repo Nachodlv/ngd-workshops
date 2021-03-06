@@ -19,15 +19,19 @@
 
 // http://stackoverflow.com/questions/24088002/stb-image-h-in-visual-studio-unresolved-external-symbol
 #define STB_IMAGE_IMPLEMENTATION
+#include <initializer_list>
 #include <stb/stb_image.h>
+
+#include "AssimpHelper.h"
 
 glm::mat4 transform;
 glm::mat4 projection;
+float alpha = 0.0f;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
 
-// settings
+// settings3
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
@@ -165,7 +169,7 @@ void CreateGLTexture(unsigned int& texture)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		// set texture filtering parameters
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); // como se van a interpolar las texturas con los vertices
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -242,46 +246,73 @@ int main()
 	glEnable(GL_CULL_FACE);
 	glCullFace(GL_BACK);
 
+	glEnable(GL_DEPTH_TEST);
+
 	projection = glm::perspective(glm::radians(75.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.01f, 100.0f);
 
 	// Step 1: Load geometry data
 	// Data estatica que te llega de Blender
-	GLfloat cube_vertex_data[] =
+	// GLfloat cube_vertex_data[] =
+	// {
+	// 	// Vertex position		// Vertex color		// UV: Como se va a ver la textura sobre la geometria
+	// 	// front
+	// 	-0.5f, -0.5f, 0.5f,		1.0, 0.0, 0.0,		0.666667f, 0.333333f,
+ //         0.5f, -0.5f, 0.5f,		0.0, 1.0, 0.0,		0.333333f, 0.333333f,
+ //         0.5f,  0.5f, 0.5f,		0.0, 0.0, 1.0,		0.333333, 0.000000f,
+ //        -0.5f,  0.5f, 0.5f,		1.0, 1.0, 1.0,		0.666667, 0.000000f,
+ //        // back
+ //        -0.5f, -0.5f, -0.5f,	1.0, 0.0, 0.0,		0.333333f, 0.666667f,
+ //         0.5f, -0.5f, -0.5f,	0.0, 1.0, 0.0,		0.000000f, 0.666667f,
+ //         0.5f,  0.5f, -0.5f,	0.0, 0.0, 1.0,		0.000000f, 0.333333f,
+ //        -0.5f,  0.5f, -0.5f,	1.0, 1.0, 1.0,		0.333333f, 0.333333f
+ //    };
+ //
+	// /* init_resources */
+	// unsigned int cube_elements[] =
+	// {
+	// 	// front
+	// 	0, 1, 2,
+	// 	2, 3, 0,
+	// 	1, 5, 6,
+	// 	6, 2, 1,
+	// 	// back
+	// 	7, 6, 5,
+	// 	5, 4, 7,
+	// 	// left
+	// 	4, 0, 3,
+	// 	3, 7, 4,
+	// 	// bottom
+	// 	4, 5, 1,
+	// 	1, 0, 4,
+	// 	// top
+	// 	3, 2, 6,
+	// 	6, 7, 3
+	// };
+
+	struct VertexData
 	{
-		// Vertex position		// Vertex color
-		// front
-		-0.5f, -0.5f, 0.5f,		1.0, 0.0, 0.0,
-		 0.5f, -0.5f, 0.5f,		0.0, 1.0, 0.0,
-		 0.5f,  0.5f, 0.5f,		0.0, 0.0, 1.0,
-		-0.5f,  0.5f, 0.5f,		1.0, 1.0, 1.0,
-		// back
-		-0.5f, -0.5f, -0.5f,	1.0, 0.0, 0.0,
-		 0.5f, -0.5f, -0.5f,	0.0, 1.0, 0.0,
-		 0.5f,  0.5f, -0.5f,	0.0, 0.0, 1.0,
-		-0.5f,  0.5f, -0.5f,	1.0, 1.0, 1.0,
+		glm::vec3 position;
+		glm::vec3 color;
+		glm::vec2 uv;
 	};
 
-	/* init_resources */
-	unsigned int cube_elements[] =
+	std::vector<glm::vec3> positions;
+	std::vector<glm::vec2> uvs;
+	std::vector<glm::vec3> normals;
+	std::vector<unsigned int> indices;
+	if(!AssimpHelper::ImportMesh("../res/models/Monkey.fbx", positions, uvs, normals, indices))
 	{
-		// front
-		0, 1, 2,
-		2, 3, 0,
-		1, 5, 6,
-		6, 2, 1,
-		// back
-		7, 6, 5,
-		5, 4, 7,
-		// left
-		4, 0, 3,
-		3, 7, 4,
-		// bottom
-		4, 5, 1,
-		1, 0, 4,
-		// top
-		3, 2, 6,
-		6, 7, 3
-	};
+		std::cout << "Error importing mesh" << std::endl;
+		return 0;
+	}
+
+	std::vector<VertexData> vertices = std::vector<VertexData>(positions.size());
+	for (size_t n = 0;n < positions.size(); ++n)
+	{
+		vertices[n].position = positions[n];
+		vertices[n].uv = uvs[n];
+		vertices[n].color = glm::vec3();
+	}
 
 	unsigned int IBO;
 	{ // Create IBO (INDEX BUFFER OBJECT)
@@ -290,7 +321,7 @@ int main()
 		// Bind IBO
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
 		{
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_elements), cube_elements, GL_STATIC_DRAW /* Significa que la data no va a cambiar, la copia */);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices[0]) * indices.size(), indices.data(), GL_STATIC_DRAW /* Significa que la data no va a cambiar, la copia */);
 		}
 		// Unbind IBO
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -307,7 +338,7 @@ int main()
 		// b: Store geometry data into the buffer data using "glBufferData"
 		// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glBufferData.xhtml
 		// Se pushea la data de los vertices
-		glBufferData(GL_ARRAY_BUFFER, sizeof(cube_vertex_data), cube_vertex_data, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
 	}
 	glBindBuffer(GL_ARRAY_BUFFER, 0); // unbind
 
@@ -328,7 +359,7 @@ int main()
 		{
 			// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glVertexAttribPointer.xhtml
 			// position attribute
-			GLsizei bytePerVertex = 6 * sizeof(GLfloat);
+			GLsizei bytePerVertex = 8 * sizeof(GLfloat);
 			void* offset = (void*)0;
 
 			// Abilitame el slot 0
@@ -346,6 +377,11 @@ int main()
 			offset = (void*)(3 * sizeof(float)); // Cuanto me muevo para leer el color
 			glEnableVertexAttribArray(1);
 			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
+
+			//uvs attribute
+			offset = (void*) (6 * sizeof(float));
+			glEnableVertexAttribArray(2);
+			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
 		}
 		glBindBuffer(GL_ARRAY_BUFFER, 0); // unbind
 	}
@@ -364,8 +400,26 @@ int main()
 
 	int transformUniformLocation = glGetUniformLocation(shaderProgram, "transform");
 	int projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
+	int alphaUniformLocation = glGetUniformLocation(shaderProgram, "alpha");
 
 	transform = glm::translate(transform, glm::vec3(0.0f, 0.0f, -3.0f));
+
+	// Create and load texture
+	unsigned int texture = 0;
+	{
+		CreateGLTexture(texture);
+
+		//Load the pixels data
+		int w;
+		int h;
+		int channelsCount;
+		unsigned char* pixelsData = LoadImage("../res/textures/placeHolder.jpg", w, h, channelsCount, 3, true);
+		if(pixelsData != nullptr)
+		{
+			SetImageToGLTexture(texture, w, h, GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, pixelsData);
+		}
+		FreeImage(pixelsData);
+	}
 
 	// Loop
 	while (!glfwWindowShouldClose(window))
@@ -386,7 +440,7 @@ int main()
 
 			// GL tiene diferentes buffers, uno de ellos es el color. Es lo que hace referencia el vertex shader con FragColor
 			// Otro buffer puede ser el de depth
-			glClear(GL_COLOR_BUFFER_BIT);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 			// Draw the VAO using the VBO
 			glBindVertexArray(VAO);
@@ -398,11 +452,16 @@ int main()
 					{ // Update uniforms here!
 						glUniformMatrix4fv(transformUniformLocation, 1, GL_FALSE, &transform[0][0]);
 						glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
+						glUniform1f(alphaUniformLocation, alpha);
+					}
+
+					{ // Bind the textures
+						glBindTexture(GL_TEXTURE_2D, texture);
 					}
 
 					// Draw call
 					// glDrawArrays(GL_TRIANGLES /* Toda la data que tengo dibujalo como triangulo */, 0, 3); // Solo cuando no tengo indices
-					glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, nullptr);
+					glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, nullptr);
 				}
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 				glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -426,6 +485,7 @@ int main()
 	}
 
 	glfwTerminate(); // always terminate if we init
+	glDeleteTextures(1, &texture);
 	return 0;
 }
 
