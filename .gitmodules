@@ -1,3 +1,6 @@
 [submodule ".\\wave-function-collapse\\"]
 	path = .\\wave-function-collapse\\
 	url = https://github.com/Nachodlv/wave-function-collapse
+[submodule ".\\UEAutomationWorkshop\\"]
+	path = .\\UEAutomationWorkshop\\
+	url = https://gitlab.com/nachodlv/ue-automation-workshop
