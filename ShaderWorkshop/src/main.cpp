@@ -3,37 +3,45 @@
 
 #include <iostream> // cout
 
+#include <vector>
+
 // read shader file
 #include <string>
 #include <fstream>
 #include <sstream>
 #include <iostream>
 
-// glm includes
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-#include <vector>
-
-
+#include "AssimpHelper.h"
+#include "camera.h"
 
 // http://stackoverflow.com/questions/24088002/stb-image-h-in-visual-studio-unresolved-external-symbol
 #define STB_IMAGE_IMPLEMENTATION
-#include <initializer_list>
 #include <stb/stb_image.h>
 
-#include "AssimpHelper.h"
-
-glm::mat4 transform;
-glm::mat4 projection;
-float alpha = 0.0f;
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow* window);
-
-// settings3
+// settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
+
+glm::mat4 model;
+glm::mat4 projection;
+
+// camera
+Camera camera(glm::vec3(0.0f, 2.0f, 8.0f));
+bool firstMouse = true;
+float lastX = SCR_WIDTH / 2.0f;
+float lastY = SCR_HEIGHT / 2.0f;
+
+// timing
+float deltaTime = 0.0f;	// time between current frame and last frame
+float lastFrame = 0.0f;
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow* window);
 
 ///////////////////// STBI HELPERS FUNCTIONS //////////////////////////////////////////////////////////////////////////////
 unsigned char* LoadImage(
@@ -62,7 +70,7 @@ unsigned char* LoadImage(
 	unsigned char* buffer = stbi_load(absoluteFilePath, &_x, &_y, &_channels_in_file, desired_channels);
 	if (buffer == nullptr)
 	{
-		std::cout << "failed to load texture: " << absoluteFilePath <<std::endl;
+		std::cout << "failed to load texture: " << absoluteFilePath << std::endl;
 		return nullptr;
 	}
 
@@ -111,8 +119,8 @@ const std::string ReadShader(const char* shaderPath)
 int CreateCompileAndLinkShaderProgram(const char* vertexShaderSource, const char* fragmentShaderSource)
 {
 	// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glCreateShader.xhtml
-	int vertexShader = glCreateShader(GL_VERTEX_SHADER); // Tipo del shader
-	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL); // Le pasas el source para que lea, le decis de donde viene
+	int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
 	glCompileShader(vertexShader);
 	// check for shader compile errors
 	int success;
@@ -138,9 +146,8 @@ int CreateCompileAndLinkShaderProgram(const char* vertexShaderSource, const char
 		return -1;
 	}
 
-	// Una vez que el fragment y el vertex shader compilan, se linkean.
 	// link shaders
-	int shaderProgram = glCreateProgram(); // te devuelve un id. "Reserva un lugar en la placa"
+	int shaderProgram = glCreateProgram();
 	glAttachShader(shaderProgram, vertexShader);
 	glAttachShader(shaderProgram, fragmentShader);
 	glLinkProgram(shaderProgram);
@@ -152,8 +159,6 @@ int CreateCompileAndLinkShaderProgram(const char* vertexShaderSource, const char
 		std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
 		return -1;
 	}
-
-	// borra los dos shaders que se usaron para la lectura
 	glDeleteShader(vertexShader);
 	glDeleteShader(fragmentShader);
 
@@ -169,7 +174,7 @@ void CreateGLTexture(unsigned int& texture)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 		// set texture filtering parameters
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR); // como se van a interpolar las texturas con los vertices
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	}
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -188,7 +193,8 @@ void CreateGLTexture(unsigned int& texture)
 /// <returns></returns>
 void SetImageToGLTexture(
 	unsigned int texture,
-	const int width, const int height,
+	const int width,
+	const int height,
 	GLint internalformat,
 	GLenum format,
 	GLenum type,
@@ -227,19 +233,23 @@ int main()
 	if (window == NULL)
 	{
 		std::cout << "Failed to create GLFW window" << std::endl;
-		glfwTerminate(); // always terminate if we init
+		glfwTerminate();
 		return -1;
 	}
 	glfwMakeContextCurrent(window);
-
-	// the function pointer is called when the window is resized
 	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+	glfwSetCursorPosCallback(window, mouse_callback);
+	glfwSetScrollCallback(window, scroll_callback);
+
+	// tell GLFW to capture our mouse
+	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+
 
 	// glad: load all OpenGL function pointers
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
 		std::cout << "Failed to initialize GLAD" << std::endl;
-		glfwTerminate(); // always terminate if we init
+		glfwTerminate();
 		return -1;
 	}
 
@@ -248,70 +258,39 @@ int main()
 
 	glEnable(GL_DEPTH_TEST);
 
-	projection = glm::perspective(glm::radians(75.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.01f, 100.0f);
-
-	// Step 1: Load geometry data
-	// Data estatica que te llega de Blender
-	// GLfloat cube_vertex_data[] =
-	// {
-	// 	// Vertex position		// Vertex color		// UV: Como se va a ver la textura sobre la geometria
-	// 	// front
-	// 	-0.5f, -0.5f, 0.5f,		1.0, 0.0, 0.0,		0.666667f, 0.333333f,
- //         0.5f, -0.5f, 0.5f,		0.0, 1.0, 0.0,		0.333333f, 0.333333f,
- //         0.5f,  0.5f, 0.5f,		0.0, 0.0, 1.0,		0.333333, 0.000000f,
- //        -0.5f,  0.5f, 0.5f,		1.0, 1.0, 1.0,		0.666667, 0.000000f,
- //        // back
- //        -0.5f, -0.5f, -0.5f,	1.0, 0.0, 0.0,		0.333333f, 0.666667f,
- //         0.5f, -0.5f, -0.5f,	0.0, 1.0, 0.0,		0.000000f, 0.666667f,
- //         0.5f,  0.5f, -0.5f,	0.0, 0.0, 1.0,		0.000000f, 0.333333f,
- //        -0.5f,  0.5f, -0.5f,	1.0, 1.0, 1.0,		0.333333f, 0.333333f
- //    };
- //
-	// /* init_resources */
-	// unsigned int cube_elements[] =
-	// {
-	// 	// front
-	// 	0, 1, 2,
-	// 	2, 3, 0,
-	// 	1, 5, 6,
-	// 	6, 2, 1,
-	// 	// back
-	// 	7, 6, 5,
-	// 	5, 4, 7,
-	// 	// left
-	// 	4, 0, 3,
-	// 	3, 7, 4,
-	// 	// bottom
-	// 	4, 5, 1,
-	// 	1, 0, 4,
-	// 	// top
-	// 	3, 2, 6,
-	// 	6, 7, 3
-	// };
-
 	struct VertexData
 	{
 		glm::vec3 position;
 		glm::vec3 color;
 		glm::vec2 uv;
+		glm::vec3 normal;
+		glm::vec3 tangent;
+		glm::vec3 bitangents;
 	};
 
 	std::vector<glm::vec3> positions;
 	std::vector<glm::vec2> uvs;
 	std::vector<glm::vec3> normals;
+	std::vector<glm::vec3> tangents;
+	std::vector<glm::vec3> bitangents;
 	std::vector<unsigned int> indices;
-	if(!AssimpHelper::ImportMesh("../res/models/Monkey.fbx", positions, uvs, normals, indices))
+	//const std::string modelPath = "../res/models/Monkey.fbx";
+	const std::string modelPath = "../res/models/ShaderBall.fbx";
+
+	if (!AssimpHelper::ImportMesh(modelPath, positions, uvs, normals, indices, tangents, bitangents))
 	{
-		std::cout << "Error importing mesh" << std::endl;
-		return 0;
+		// LOG ERROR!
 	}
 
 	std::vector<VertexData> vertices = std::vector<VertexData>(positions.size());
-	for (size_t n = 0;n < positions.size(); ++n)
+	for (size_t n = 0; n < positions.size(); ++n)
 	{
 		vertices[n].position = positions[n];
 		vertices[n].uv = uvs[n];
 		vertices[n].color = glm::vec3();
+		vertices[n].normal = normals[n];
+		vertices[n].tangent = tangents[n];
+		vertices[n].bitangents = bitangents[n];
 	}
 
 	unsigned int IBO;
@@ -321,7 +300,7 @@ int main()
 		// Bind IBO
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
 		{
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices[0]) * indices.size(), indices.data(), GL_STATIC_DRAW /* Significa que la data no va a cambiar, la copia */);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices[0]) * indices.size(), indices.data(), GL_STATIC_DRAW);
 		}
 		// Unbind IBO
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -333,18 +312,16 @@ int main()
 
 	// Step 3: Store the geometry data into the buffer data
 	// a: Bind the VBO
-	glBindBuffer(GL_ARRAY_BUFFER, VBO); // bind
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	{
 		// b: Store geometry data into the buffer data using "glBufferData"
 		// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glBufferData.xhtml
-		// Se pushea la data de los vertices
+		//glBufferData(GL_ARRAY_BUFFER, sizeof(vertexData[0]) * vertexData.size(), &vertexData[0], GL_STATIC_DRAW);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * vertices.size(), vertices.data(), GL_STATIC_DRAW);
 	}
-	glBindBuffer(GL_ARRAY_BUFFER, 0); // unbind
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	// Step 4: Creates a VAO (Vertex array object):
-	// GL genera un objecto que contiene un arreglo de vertices. Adentro de cada elemento (slot) del arreglo se puede pushear data
-	// Para pushearlos se necesita un VBO (un buffer)
 	unsigned int VAO;
 	glGenVertexArrays(1, &VAO);
 
@@ -358,88 +335,155 @@ int main()
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
 		{
 			// https://www.khronos.org/registry/OpenGL-Refpages/gl4/html/glVertexAttribPointer.xhtml
+			GLsizei bytePerVertex = sizeof(VertexData);
+
 			// position attribute
-			GLsizei bytePerVertex = 8 * sizeof(GLfloat);
 			void* offset = (void*)0;
-
-			// Abilitame el slot 0
 			glEnableVertexAttribArray(0);
-
-			glVertexAttribPointer(
-				0,
-				3 /* Lee los primeros tres floats. Es la posicion (vec3)*/,
-				GL_FLOAT, GL_FALSE,
-				bytePerVertex /* el tamaño que va a ocupar cada slot */,
-				offset
-			);
+			glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
 
 			// color attribute
-			offset = (void*)(3 * sizeof(float)); // Cuanto me muevo para leer el color
+			offset = (void*)(3 * sizeof(float));
 			glEnableVertexAttribArray(1);
 			glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
 
-			//uvs attribute
-			offset = (void*) (6 * sizeof(float));
+			// uvs attribute
+			offset = (void*)(6 * sizeof(float));
 			glEnableVertexAttribArray(2);
 			glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
+
+			// normal attribute
+			offset = (void*)(8 * sizeof(float));
+			glEnableVertexAttribArray(3);
+			glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
+
+			// tangent attribute
+			offset = (void*)(11 * sizeof(float));
+			glEnableVertexAttribArray(4);
+			glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
+
+			// bitangent attribute
+			offset = (void*)(14 * sizeof(float));
+			glEnableVertexAttribArray(5);
+			glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, bytePerVertex, offset);
 		}
-		glBindBuffer(GL_ARRAY_BUFFER, 0); // unbind
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
-	glBindVertexArray(0); // unbind
+	glBindVertexArray(0);
 
 	int shaderProgram = -1;
 	{ // Create shader
-		// Step 0 Read, build and compile the Vertex & Fragment shaders program
-		const std::string vertexShaderSource = ReadShader("../res/shaders/shader.vs");
-		const std::string fragmentShaderSource = ReadShader("../res/shaders/shader.fs");
-		// El shader es un programa, es un codigo que se compila.
-		// Muy similar a C.
-		// Un shader programar esta compuesto por shader
-		shaderProgram = CreateCompileAndLinkShaderProgram(vertexShaderSource.c_str(), fragmentShaderSource.c_str());
+		{
+			// Step 0 Read, build and compile the Vertex & Fragment shaders program
+			const std::string vertexShaderSource = ReadShader("../res/shaders/shader.vs");
+			const std::string fragmentShaderSource = ReadShader("../res/shaders/shader.fs");
+			shaderProgram = CreateCompileAndLinkShaderProgram(vertexShaderSource.c_str(), fragmentShaderSource.c_str());
+			glUseProgram(shaderProgram);
+			{
+				int albedoSamplerUniformLocation = glGetUniformLocation(shaderProgram, "albedoMap");
+				if (albedoSamplerUniformLocation != -1)
+				{
+					glUniform1i(albedoSamplerUniformLocation, 0);
+				}
+				int normalSamplerUniformLocation = glGetUniformLocation(shaderProgram, "normalMap");
+				if (normalSamplerUniformLocation != -1)
+				{
+					glUniform1i(normalSamplerUniformLocation, 1);
+				}
+			}
+			glUseProgram(0);
+		}
 	}
 
 	int transformUniformLocation = glGetUniformLocation(shaderProgram, "transform");
 	int projectionUniformLocation = glGetUniformLocation(shaderProgram, "projection");
-	int alphaUniformLocation = glGetUniformLocation(shaderProgram, "alpha");
+	int viewUniformLocation = glGetUniformLocation(shaderProgram, "view");
 
-	transform = glm::translate(transform, glm::vec3(0.0f, 0.0f, -3.0f));
+	// Lighting
+	int lightPositionUniformLocation = glGetUniformLocation(shaderProgram, "lightWorldPosition");
+	int lightColorUniformLocation = glGetUniformLocation(shaderProgram, "lightColor");
 
-	// Create and load texture
+	// Material
+	int baseColorUniformLocation = glGetUniformLocation(shaderProgram, "baseColor");
+
 	unsigned int texture = 0;
 	{
+		// Create and load texture:
+
 		CreateGLTexture(texture);
 
-		//Load the pixels data
+		// Load the pixels data
 		int w;
 		int h;
 		int channelsCount;
-		unsigned char* pixelsData = LoadImage("../res/textures/placeHolder.jpg", w, h, channelsCount, 3, true);
-		if(pixelsData != nullptr)
+		unsigned char* pixelsData = LoadImage("../res/textures/Wood018_1K-PNG/Wood018_1K_Color.png", w, h, channelsCount, 3, true);
+		if (pixelsData != nullptr)
 		{
 			SetImageToGLTexture(texture, w, h, GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, pixelsData);
 		}
 		FreeImage(pixelsData);
 	}
 
+	unsigned int normalSampler = 0;
+	{
+		// Create and load texture:
+
+		CreateGLTexture(normalSampler);
+
+		// Load the pixels data
+		int w;
+		int h;
+		int channelsCount;
+		unsigned char* pixelsData = LoadImage("../res/textures/Wood018_1K-PNG/Wood018_1K_Normal.png", w, h, channelsCount, 3, true);
+		if (pixelsData != nullptr)
+		{
+			SetImageToGLTexture(normalSampler, w, h, GL_RGB, GL_RGB, GL_UNSIGNED_BYTE, pixelsData);
+		}
+		FreeImage(pixelsData);
+	}
+
+	// Lighting
+	glm::vec3 lightPosition = glm::vec3(-4.0f, 2.0f, 4.0f);
+	glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
+
+	// Material
+	glm::vec3 baseColor = glm::vec3(1.0f, 1.0f, 1.0f);
+
 	// Loop
 	while (!glfwWindowShouldClose(window))
 	{
+		// per-frame time logic
+		{
+			float currentFrame = glfwGetTime();
+			deltaTime = currentFrame - lastFrame;
+			lastFrame = currentFrame;
+		}
+
 		// Input
 		{
 			processInput(window);
 		}
 
+		// set light position
+		float lightX = (2.0f * sin(glfwGetTime()));
+		float lightY = (0.0f);
+		float lightZ = (2.0f * cos(glfwGetTime()));
+		lightPosition.x = lightX;
+		lightPosition.y = lightY;
+		lightPosition.z = lightZ;
+
 		// Update
 		{
-			//transform = glm::rotate(transform, 0.01f, glm::vec3(1.0f, 1.0f, 1.0f));
+			// Update the projection matrix each frame based on the camera zoom
+			projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.01f, 100.0f);
 		}
+
+
+		const glm::mat4 view = camera.GetViewMatrix();
 
 		// Render Pass
 		{
-			glClearColor(0.0f, 0.0f, 0.0f, 1.0f); // Clears the screen and sets a background color
-
-			// GL tiene diferentes buffers, uno de ellos es el color. Es lo que hace referencia el vertex shader con FragColor
-			// Otro buffer puede ser el de depth
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 			// Draw the VAO using the VBO
@@ -449,18 +493,31 @@ int main()
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, IBO);
 				{
 					glUseProgram(shaderProgram);
-					{ // Update uniforms here!
-						glUniformMatrix4fv(transformUniformLocation, 1, GL_FALSE, &transform[0][0]);
-						glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
-						glUniform1f(alphaUniformLocation, alpha);
-					}
+					{
+						// Update shader uniforms
+						{
+							glUniformMatrix4fv(transformUniformLocation, 1, GL_FALSE, &model[0][0]);
+							glUniformMatrix4fv(projectionUniformLocation, 1, GL_FALSE, &projection[0][0]);
+							glUniformMatrix4fv(viewUniformLocation, 1, GL_FALSE, &view[0][0]);
 
-					{ // Bind the textures
-						glBindTexture(GL_TEXTURE_2D, texture);
+							// Lighting
+							glUniform3f(lightPositionUniformLocation, lightPosition.x, lightPosition.y, lightPosition.z);
+							glUniform3f(lightColorUniformLocation, lightColor.x, lightColor.y, lightColor.z);
+
+							// Material
+							glUniform3f(baseColorUniformLocation, baseColor.x, baseColor.y, baseColor.z);
+						}
+
+						{ // Bind the textures
+							glActiveTexture(GL_TEXTURE0);
+							glBindTexture(GL_TEXTURE_2D, texture);
+
+							glActiveTexture(GL_TEXTURE0 + 1);
+							glBindTexture(GL_TEXTURE_2D, normalSampler);
+						}
 					}
 
 					// Draw call
-					// glDrawArrays(GL_TRIANGLES /* Toda la data que tengo dibujalo como triangulo */, 0, 3); // Solo cuando no tengo indices
 					glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, nullptr);
 				}
 				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -484,8 +541,12 @@ int main()
 		glDeleteBuffers(1, &VBO);
 	}
 
-	glfwTerminate(); // always terminate if we init
-	glDeleteTextures(1, &texture);
+	{
+		// Destroy the Textures
+		glDeleteTextures(1, &texture);
+	}
+
+	glfwTerminate();
 	return 0;
 }
 
@@ -499,24 +560,34 @@ void processInput(GLFWwindow* window)
 	}
 	if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
 	{
-		transform = glm::rotate(transform, -0.1f, glm::vec3(0.0f, 1.0f, 0.0f));
+		model = glm::rotate(model, -0.1f, glm::vec3(0.0f, 1.0f, 0.0f));
 	}
 	if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
 	{
-		transform = glm::translate(transform, glm::vec3(-0.01f, 0.0f, 0.0f));
+		model = glm::translate(model, glm::vec3(-0.01f, 0.0f, 0.0f));
 	}
 	if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
 	{
-		transform = glm::translate(transform, glm::vec3(0.01f, 0.0f, 0.0f));
+		model = glm::translate(model, glm::vec3(0.01f, 0.0f, 0.0f));
 	}
 	if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
 	{
-		transform = glm::translate(transform, glm::vec3(0.0f, 0.01f, 0.0f));
+		model = glm::translate(model, glm::vec3(0.0f, 0.01f, 0.0f));
 	}
 	if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
 	{
-		transform = glm::translate(transform, glm::vec3(0.0f, -0.01f, 0.0f));
+		model = glm::translate(model, glm::vec3(0.0f, -0.01f, 0.0f));
 	}
+
+	// CAMERA MOVEMENT
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+		camera.ProcessKeyboard(FORWARD, deltaTime);
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+		camera.ProcessKeyboard(BACKWARD, deltaTime);
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+		camera.ProcessKeyboard(LEFT, deltaTime);
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+		camera.ProcessKeyboard(RIGHT, deltaTime);
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -527,5 +598,32 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 	// height will be significantly larger than specified on retina displays.
 	glViewport(0, 0, width, height);
 
-	projection = glm::perspective(glm::radians(75.0f), (float)width / (float)height, 0.01f, 100.0f);
+	projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.01f, 100.0f);
+}
+
+// glfw: whenever the mouse moves, this callback is called
+// -------------------------------------------------------
+void mouse_callback(GLFWwindow* window, double xpos, double ypos)
+{
+	if (firstMouse)
+	{
+		lastX = xpos;
+		lastY = ypos;
+		firstMouse = false;
+	}
+
+	float xoffset = xpos - lastX;
+	float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+
+	lastX = xpos;
+	lastY = ypos;
+
+	camera.ProcessMouseMovement(xoffset, yoffset);
+}
+
+// glfw: whenever the mouse scroll wheel scrolls, this callback is called
+// ----------------------------------------------------------------------
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	camera.ProcessMouseScroll(yoffset);
 }

@@ -6,10 +6,12 @@ PROJECT(ShaderWorkshop CXX)
 SET(SRCS
 	"${CMAKE_CURRENT_LIST_DIR}/src/main.cpp"
 	"${CMAKE_CURRENT_LIST_DIR}/src/AssimpHelper.cpp"
+	"${CMAKE_CURRENT_LIST_DIR}/src/AssimpHelper.h"
+	"${CMAKE_CURRENT_LIST_DIR}/src/camera.h"
 )
 
 SET(HDRS
-	"${CMAKE_CURRENT_LIST_DIR}/src/AssimpHelper.h"
+
 )
 
 add_library(glad STATIC "src/glad/glad.cpp")
@@ -27,6 +29,8 @@ add_library(assimp STATIC IMPORTED)
 set_target_properties(assimp PROPERTIES
     IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/lib/assimp-vc140-mtd.lib"
 )
+
+set_property (DIRECTORY PROPERTY VS_STARTUP_PROJECT "ShaderWorkshopMain")
 
 add_executable(ShaderWorkshopMain "${SRCS}")
 set_property(TARGET ShaderWorkshopMain PROPERTY
