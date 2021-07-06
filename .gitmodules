@@ -4,3 +4,6 @@
 [submodule ".\\UEAutomationWorkshop\\"]
 	path = .\\UEAutomationWorkshop\\
 	url = https://gitlab.com/nachodlv/ue-automation-workshop
+[submodule ".\\BTWorkshop\\"]
+	path = .\\BTWorkshop\\
+	url = https://gitlab.com/nachodlv/btworkshop
